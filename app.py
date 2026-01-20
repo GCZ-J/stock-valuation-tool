@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 港美A股股权激励期权估值工具（稳定版+提示词优化+无冗余输出）
+# 港美A股股权激励期权估值工具（完整版：三模型对比+稳定抓取）
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -7,14 +7,14 @@ import yfinance as yf
 import warnings
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-from scipy.stats import norm
+from scipy.stats import norm, lognorm
 from io import BytesIO
 import openpyxl
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # 全局配置
 st.set_page_config(
-    page_title="港美A股股权激励期权估值工具（稳定版）",
+    page_title="港美A股股权激励期权估值工具（完整版）",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -24,23 +24,24 @@ plt.rcParams["font.sans-serif"] = ["WenQuanYi Zen Hei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 # ====================== 核心工具函数 ======================
-# 1. Ticker格式校验（自动转大写，兼容大小写输入）
+# 1. Ticker格式校验（大小写无关+自动补全）
 def check_and_fix_ticker(ticker, market_type):
     """
-    严格校验Ticker格式，自动转大写（兼容小写输入如li→LI）
+    严格校验Ticker格式，自动转大写（兼容Li→LI）
     """
-    ticker = ticker.strip().upper()  # 强制转大写，解决Li/LI输入差异问题
+    ticker = ticker.strip().upper()  # 强制转大写，解决大小写问题
     if market_type == "美股":
         if not ticker.isalpha():
-            return None, "美股Ticker只能是字母（如AAPL、MSFT，大小写均可）"
+            return None, "美股Ticker只能是字母（如LI、AAPL、MSFT，大小写均可）"
         return ticker, ""
     elif market_type == "港股":
+        # 港股：5位数字自动补.HK，已带.HK直接校验
         if ticker.isdigit() and len(ticker) == 5:
             return f"{ticker}.HK", ""
         elif ticker.endswith(".HK") and ticker[:-3].isdigit() and len(ticker[:-3]) == 5:
             return ticker, ""
         else:
-            return None, "港股Ticker必须是5位数字（如00700）或带.HK后缀（如00700.HK）"
+            return None, "港股Ticker必须是5位数字（如02015）或带.HK后缀（如02015.HK）"
     elif market_type == "A股":
         if ticker.isdigit():
             if ticker.startswith("6"):
@@ -60,39 +61,39 @@ def check_and_fix_ticker(ticker, market_type):
     else:
         return None, "请选择正确的市场类型（美股/港股/A股）"
 
-# 2. 双数据源股价抓取（带自动重试+数据校验）
+# 2. 双数据源股价抓取（增强重试+港股适配）
 @st.cache_data(ttl=3600)
 @retry(
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=3),
+    wait=wait_exponential(multiplier=1, min=1, max=5),  # 延长重试间隔至5秒
     retry=retry_if_exception_type((Exception,)),
     reraise=True
 )
 def get_stock_data(ticker, market_type):
-    """双数据源抓取：优先yfinance，A股失败切AkShare"""
+    """双数据源抓取：优先yfinance，A股失败切AkShare，港股适配02015.HK"""
     ticker_full, err_msg = check_and_fix_ticker(ticker, market_type)
     if err_msg:
         return None, None, f"❌ Ticker格式错误：{err_msg}"
 
-    # 优先yfinance
+    # 优先yfinance（适配港股02015.HK）
     try:
         stock = yf.Ticker(ticker_full)
-        hist_data = stock.history(period="1y")
+        hist_data = stock.history(period="1y", interval="1d")  # 明确日线间隔
         if not hist_data.empty:
             latest_close = round(hist_data["Close"].iloc[-1], 2)
             hist_data = hist_data[["Close"]].reset_index()
             hist_data.rename(columns={"Date": "日期", "Close": "收盘价"}, inplace=True)
             hist_data["日期"] = hist_data["日期"].dt.date
             
-            # 数据校验
+            # 数据有效性校验
             if latest_close <= 0:
-                return None, None, f"❌ 数据异常：{ticker_full} 收盘价={latest_close}（需大于0）"
+                return None, None, f"❌ 数据异常：{ticker_full} 收盘价={latest_close}（需>0）"
             if len(hist_data) < 20:
-                return None, None, f"❌ 历史数据不足：仅{len(hist_data)}条（至少需要20条）"
+                return None, None, f"❌ 历史数据不足：仅{len(hist_data)}条（至少20条）"
             
             return latest_close, hist_data, f"✅ 抓取成功：{ticker_full} 收盘价={latest_close}"
     except Exception as e:
-        st.warning(f"ℹ️ yfinance抓取失败，尝试备用数据源...")
+        st.warning(f"ℹ️ yfinance抓取{market_type}失败：{str(e)}，尝试备用方案...")
 
     # A股备用AkShare
     if market_type == "A股":
@@ -116,7 +117,7 @@ def get_stock_data(ticker, market_type):
                 if len(hist_data) < 20:
                     return None, None, f"❌ 历史数据不足：仅{len(hist_data)}条"
                 
-                return latest_close, hist_data, f"✅ 抓取成功：{ticker_ak} 收盘价={latest_close}"
+                return latest_close, hist_data, f"✅ AkShare抓取成功：{ticker_ak} 收盘价={latest_close}"
         except ImportError:
             return None, None, "❌ AkShare未安装（需添加akshare>=1.10.0到requirements.txt）"
         except Exception as e:
@@ -139,7 +140,7 @@ def calculate_hist_vol(file=None, hist_data=None):
             
             close_cols = [col for col in df.columns if "close" in col.lower() or "收盘价" in col]
             if not close_cols:
-                return None, "❌ 未找到收盘价列"
+                return None, "❌ 未找到收盘价列（列名含close/收盘价）"
             df = df[close_cols[0]].dropna()
             df = pd.DataFrame({"收盘价": df})
         else:
@@ -150,34 +151,117 @@ def calculate_hist_vol(file=None, hist_data=None):
         
         df["日收益率"] = df["收盘价"].pct_change()
         daily_vol = df["日收益率"].std()
-        annual_vol = daily_vol * np.sqrt(252)
+        annual_vol = daily_vol * np.sqrt(252)  # 年化（252个交易日）
         
         return round(annual_vol, 4), f"✅ 历史波动率：{round(annual_vol*100, 2)}%"
     except Exception as e:
         return None, f"❌ 波动率计算失败：{str(e)}"
 
-# 4. Black-Scholes估值模型
-def black_scholes(S, K, T, r, sigma, option_type="call"):
+# 4. 三大期权估值模型（对比功能核心）
+def option_valuation_models(S, K, T, r, sigma, option_type="call"):
+    """
+    三大期权估值模型对比：Black-Scholes + 蒙特卡洛 + 二叉树
+    返回：各模型价格、delta、模型说明
+    """
+    results = {}
+    
+    # 1. Black-Scholes模型（基准）
     try:
         if T <= 0:
-            return max(S - K, 0) if option_type == "call" else max(K - S, 0), 0.0
-        
-        d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-        d2 = d1 - sigma * np.sqrt(T)
-        
-        if option_type == "call":
-            option_price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+            bs_price = max(S - K, 0) if option_type == "call" else max(K - S, 0)
+            bs_delta = 1.0 if (option_type == "call" and S > K) else 0.0
         else:
-            option_price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
-        
-        delta = norm.cdf(d1) if option_type == "call" else -norm.cdf(-d1)
-        return round(option_price, 4), round(delta, 4)
+            d1 = (np.log(S / K)+(r + 0.5 * sigma**2) * T)/(sigma * np.sqrt(T))
+            d2 = d1 - sigma * np.sqrt(T)
+            if option_type == "call":
+                bs_price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+                bs_delta = norm.cdf(d1)
+            else:
+                bs_price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+                bs_delta = -norm.cdf(-d1)
+        results["Black-Scholes"] = {
+            "price": round(bs_price, 4),
+            "delta": round(bs_delta, 4),
+            "desc": "经典解析模型，适合欧式期权，计算高效"
+        }
     except Exception as e:
-        st.error(f"❌ 估值失败：{str(e)}")
-        return 0.0, 0.0
+        results["Black-Scholes"] = {"price": 0.0, "delta": 0.0, "desc": f"计算失败：{str(e)}"}
+    
+    # 2. 蒙特卡洛模拟（数值方法）
+    try:
+        np.random.seed(42)  # 固定种子保证可复现
+        n_simulations = 100000  # 10万次模拟
+        dt = T / 252  # 日度时间步
+        price_paths = S * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + 
+                                         sigma * np.sqrt(dt) * np.random.normal(0, 1, (int(T*252), n_simulations)), 
+                                         axis=0))
+        if option_type == "call":
+            mc_payoffs = np.maximum(price_paths[-1] - K, 0)
+        else:
+            mc_payoffs = np.maximum(K - price_paths[-1], 0)
+        mc_price = np.exp(-r * T) * np.mean(mc_payoffs)
+        # 用有限差分法计算delta
+        h = S * 0.01  # 1%价格扰动
+        price_up = S + h
+        price_paths_up = price_up * np.exp(np.cumsum((r - 0.5 * sigma**2) * dt + 
+                                                   sigma * np.sqrt(dt) * np.random.normal(0, 1, (int(T*252), n_simulations)), 
+                                                   axis=0))
+        if option_type == "call":
+            mc_payoffs_up = np.maximum(price_paths_up[-1] - K, 0)
+        else:
+            mc_payoffs_up = np.maximum(K - price_paths_up[-1], 0)
+        mc_price_up = np.exp(-r * T) * np.mean(mc_payoffs_up)
+        mc_delta = (mc_price_up - mc_price) / h
+        
+        results["蒙特卡洛模拟"] = {
+            "price": round(mc_price, 4),
+            "delta": round(mc_delta, 4),
+            "desc": "数值模拟方法，适合复杂期权，结果稳定"
+        }
+    except Exception as e:
+        results["蒙特卡洛模拟"] = {"price": 0.0, "delta": 0.0, "desc": f"计算失败：{str(e)}"}
+    
+    # 3. 二叉树模型（离散方法）
+    try:
+        n_steps = 100  # 100步二叉树
+        dt = T / n_steps
+        u = np.exp(sigma * np.sqrt(dt))  # 上涨因子
+        d = 1 / u  # 下跌因子
+        p = (np.exp(r * dt) - d)/(u - d)  # 风险中性概率
+        
+        # 初始化最后一期股票价格
+        stock_prices = np.zeros(n_steps + 1)
+        for i in range(n_steps + 1):
+            stock_prices[i] = S * (u ** (n_steps - i))*(d ** i)
+        
+        # 计算期权价值
+        option_values = np.zeros(n_steps + 1)
+        if option_type == "call":
+            option_values = np.maximum(stock_prices - K, 0)
+        else:
+            option_values = np.maximum(K - stock_prices, 0)
+        
+        # 反向迭代计算
+        for i in range(n_steps - 1, -1, -1):
+            for j in range(i + 1):
+                option_values[j] = np.exp(-r * dt)*(p * option_values[j] + (1 - p) * option_values[j + 1])
+        
+        # 计算delta（二叉树delta）
+        delta = (option_values[0] - option_values[1])/(S * u - S * d) if (S * u - S * d) != 0 else 0.0
+        
+        results["二叉树模型"] = {
+            "price": round(option_values[0], 4),
+            "delta": round(delta, 4),
+            "desc": "离散时间模型，适合美式期权，直观易懂"
+        }
+    except Exception as e:
+        results["二叉树模型"] = {"price": 0.0, "delta": 0.0, "desc": f"计算失败：{str(e)}"}
+    
+    return results
 
-# 5. 导出估值报告
-def export_valuation_report(params, vol_result, bs_result):
+# 5. 导出完整估值报告（含三模型对比）
+def export_valuation_report(params, vol_result, model_results):
+    """导出包含三大模型对比的Excel报告"""
     data = [
         ["估值日期", datetime.now().strftime("%Y-%m-%d")],
         ["标的市场", params["market"]],
@@ -188,9 +272,17 @@ def export_valuation_report(params, vol_result, bs_result):
         ["无风险利率(r)", params["r"]],
         ["波动率(σ)", params["sigma"]],
         ["历史年化波动率", vol_result["vol"] if vol_result["vol"] else "未计算"],
-        ["期权公允价值", bs_result["price"]],
-        ["Delta值", bs_result["delta"]],
-        ["期权类型", params["option_type"]]
+        ["期权类型", params["option_type"]],
+        ["---", "---"],
+        ["模型名称", "期权价格"],
+        ["Black-Scholes", model_results["Black-Scholes"]["price"]],
+        ["蒙特卡洛模拟", model_results["蒙特卡洛模拟"]["price"]],
+        ["二叉树模型", model_results["二叉树模型"]["price"]],
+        ["---", "---"],
+        ["模型名称", "Delta值"],
+        ["Black-Scholes", model_results["Black-Scholes"]["delta"]],
+        ["蒙特卡洛模拟", model_results["蒙特卡洛模拟"]["delta"]],
+        ["二叉树模型", model_results["二叉树模型"]["delta"]]
     ]
     df = pd.DataFrame(data, columns=["估值维度", "结果"])
     
@@ -202,39 +294,70 @@ def export_valuation_report(params, vol_result, bs_result):
     filename = f"股权激励期权估值报告_{datetime.now().strftime('%Y%m%d')}.xlsx"
     return output, filename
 
-# ====================== 页面布局 ======================
-# 标题
+# 6. 估值建议生成器
+def generate_valuation_advice(model_results, option_type, T):
+    """根据模型结果生成股权激励方案建议"""
+    bs_price = model_results["Black-Scholes"]["price"]
+    mc_price = model_results["蒙特卡洛模拟"]["price"]
+    bt_price = model_results["二叉树模型"]["price"]
+    
+    # 价格一致性判断
+    price_diff = max(bs_price, mc_price, bt_price) - min(bs_price, mc_price, bt_price)
+    consistent = price_diff < 0.05 * bs_price  # 差异<5%视为一致
+    
+    advice = []
+    advice.append("### 🎯 股权激励估值建议")
+    advice.append(f"- **模型一致性**：{'✅ 良好' if consistent else '⚠️ 需关注'}（价格差异{price_diff:.4f}）")
+    
+    # 模型选择建议
+    if T <= 1:
+        advice.append("- **短期期权（≤1年）**：优先Black-Scholes（计算高效）或蒙特卡洛（精度高）")
+    else:
+        advice.append("- **长期期权（>1年）**：优先二叉树模型（适合美式行权）")
+    
+    # 激励方案建议
+    avg_price = (bs_price + mc_price + bt_price)/3
+    if option_type == "call":
+        if avg_price < params["K"] * 0.1:
+            advice.append("- **建议**：期权行权价偏高，可适当降低或延长锁定期")
+        elif avg_price > params["K"] * 0.5:
+            advice.append("- **建议**：期权内在价值较高，适合核心员工长期绑定")
+        else:
+            advice.append("- **建议**：期权价值合理，适合全员激励计划")
+    
+    return "\n".join(advice)
+
+# ====================== 页面布局（增强版） ======================
+# 标题区域
 st.markdown("""
-    <h1 style='text-align: center; color: #2E86AB;'>📈 港美A股股权激励期权估值工具（稳定版）</h1>
-    <h3 style='text-align: center; color: #A23B72;'>Ticker自动抓取 | 双数据源备份 | 历史波动率计算</h3>
+    <h1 style='text-align: center; color: #2E86AB;'>📈 港美A股股权激励期权估值工具（完整版）</h1>
+    <h3 style='text-align: center; color: #A23B72;'>三模型对比 | Ticker自动抓取 | 双数据源备份 | 历史波动率计算</h3>
     <hr>
 """, unsafe_allow_html=True)
 
-# 侧边栏
+# 侧边栏：参数配置（优化提示词）
 with st.sidebar:
     st.markdown("### ⚙️ 标的信息配置")
-    
-    # 优化后的Ticker输入（明确大小写无关）
+    # 市场+Ticker配置（增强提示）
     col1, col2 = st.columns(2)
     with col1:
         market_type = st.selectbox("标的市场", ["美股", "港股", "A股"], index=0)
     with col2:
         ticker_input = st.text_input(
             "标的Ticker", 
-            placeholder="AAPL/00700/600000", 
-            help="✅ 美股：AAPL（大小写均可，如li→LI）｜港股：00700｜A股：600000"
+            placeholder="LI/02015/600000", 
+            help="✅ 美股：LI（理想汽车，大小写均可）｜港股：02015｜A股：600000（沪市）/000001（深市）"
         )
-    # 更清晰的提示词
-    st.caption("📌 格式说明：港股自动补.HK | A股沪市补.SS/深市补.SZ | 大小写无关")
+    # Ticker格式提示（更清晰）
+    st.caption("📌 自动补全规则：港股补.HK | A股沪市补.SS | 深市补.SZ | 大小写无关")
     
-    # 抓取按钮（修复DeltaGenerator输出问题：改用标准if-else）
+    # 抓取按钮（无冗余输出）
     col3, col4 = st.columns(2)
     with col3:
         if st.button("📈 抓取最新收盘价", use_container_width=True):
             if ticker_input:
                 with st.spinner("🔄 正在抓取数据...（最多重试3次）"):
                     latest_close, hist_data, msg = get_stock_data(ticker_input, market_type)
-                # 修复：不用三元表达式，改用标准if-else（避免返回DeltaGenerator对象）
                 if "✅" in msg:
                     st.session_state["S"] = latest_close
                     st.session_state["hist_data"] = hist_data
@@ -243,19 +366,17 @@ with st.sidebar:
                     st.error(msg)
             else:
                 st.warning("⚠️ 请先输入标的Ticker")
-    
     with col4:
         if st.button("📊 抓取历史数据（算波动率）", use_container_width=True):
             if ticker_input:
                 with st.spinner("🔄 正在抓取历史数据..."):
                     latest_close, hist_data, msg = get_stock_data(ticker_input, market_type)
-                # 修复：标准if-else
                 if hist_data is not None and not hist_data.empty:
                     st.session_state["hist_data"] = hist_data
                     vol, vol_msg = calculate_hist_vol(hist_data=hist_data)
                     if vol:
                         st.session_state["sigma"] = vol
-                        st.success(f"{vol_msg}（已填充到波动率）")
+                        st.success(f"{vol_msg}（已填充到波动率输入框）")
                     else:
                         st.error(vol_msg)
                 else:
@@ -274,7 +395,7 @@ with st.sidebar:
     )
     K = st.number_input("行权价", min_value=0.01, max_value=10000.0, value=50.0, step=0.01)
     T = st.number_input("到期时间（年）", min_value=0.01, max_value=10.0, value=4.0, step=0.1, help="股权激励通常4年解锁")
-    r = st.number_input("无风险利率（%）", min_value=0.0, max_value=20.0, value=3.0, step=0.1) / 100
+    r = st.number_input("无风险利率（%）", min_value=0.0, max_value=20.0, value=3.0, step=0.1)/100  # 转为小数
     sigma = st.number_input(
         "波动率（小数）",
         min_value=0.01, max_value=2.0,
@@ -297,10 +418,11 @@ with st.sidebar:
             st.error(vol_msg)
     
     st.markdown("---")
-    calculate_btn = st.button("✅ 开始估值计算", type="primary", use_container_width=True)
+    calculate_btn = st.button("✅ 开始估值计算（三模型对比）", type="primary", use_container_width=True)
 
-# 主页面：估值结果
+# 主页面：估值结果展示（含三模型对比）
 if calculate_btn:
+    # 整理参数
     params = {
         "market": market_type,
         "ticker": ticker_input,
@@ -312,14 +434,16 @@ if calculate_btn:
         "option_type": "call" if "call" in option_type else "put"
     }
     
+    # 1. 计算波动率
     hist_data = st.session_state.get("hist_data")
     vol, vol_msg = calculate_hist_vol(hist_data=hist_data)
     vol_result = {"vol": vol, "msg": vol_msg}
     
-    option_price, delta = black_scholes(S, K, T, r, sigma, params["option_type"])
-    bs_result = {"price": option_price, "delta": delta}
+    # 2. 三大模型估值计算
+    with st.spinner("🔄 正在计算三大模型估值..."):
+        model_results = option_valuation_models(S, K, T, r, sigma, params["option_type"])
     
-    # 结果展示
+    # 3. 基础参数展示
     st.markdown("### 📋 基础参数与波动率结果")
     col5, col6, col7, col8 = st.columns(4)
     with col5:
@@ -331,18 +455,26 @@ if calculate_btn:
     with col8:
         st.metric("使用的波动率", f"{sigma*100:.2f}%")
     
+    # 4. 三大模型估值对比（核心功能回归）
     st.markdown("---")
-    st.markdown("### 🎯 Black-Scholes期权估值结果")
-    col9, col10 = st.columns(2)
-    with col9:
-        st.metric("期权公允价值", f"{option_price:.4f}", help="股权激励核心估值结果")
-    with col10:
-        st.metric("Delta值", f"{delta:.4f}", help="期权价格对标的价格的敏感度")
+    st.markdown("### 🎯 三大期权估值模型对比结果")
+    model_cols = st.columns(3)
+    for idx, (model_name, result) in enumerate(model_results.items()):
+        with model_cols[idx % 3]:
+            st.markdown(f"#### {model_name}")
+            st.metric("期权价格", f"{result['price']:.4f}")
+            st.metric("Delta值", f"{result['delta']:.4f}")
+            st.caption(f"💡 {result['desc']}")
     
-    # 导出报告
-    excel_data, filename = export_valuation_report(params, vol_result, bs_result)
+    # 5. 估值建议
+    st.markdown("---")
+    advice = generate_valuation_advice(model_results, params["option_type"], T)
+    st.info(advice)
+    
+    # 6. 导出完整报告
+    excel_data, filename = export_valuation_report(params, vol_result, model_results)
     st.download_button(
-        label="📥 导出估值报告（Excel）",
+        label="📥 导出三模型对比估值报告（Excel）",
         data=excel_data,
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -353,6 +485,7 @@ if calculate_btn:
 st.markdown("""
     <hr>
     <p style='text-align: center; color: #666;'>
-        💡 估值结果仅供参考 | 数据来源：Yahoo Finance/AkShare | 无风险利率建议使用对应市场国债收益率
+        💡 估值结果仅供股权激励方案设计参考 | 数据来源：Yahoo Finance/AkShare | 
+        无风险利率建议使用对应市场10年期国债收益率
     </p>
 """, unsafe_allow_html=True)
