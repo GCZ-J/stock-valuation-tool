@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-# 港美A股股权激励期权估值工具（稳定抓取版）
+# 港美A股股权激励期权估值工具（稳定抓取版+字体配置修复）
 # 核心优化：Ticker格式校验+双数据源+自动重试+数据有效性校验+可视化反馈
 import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 import warnings
+import matplotlib.pyplot as plt  # 新增：导入matplotlib用于字体配置
 from datetime import datetime, timedelta
 from scipy.stats import norm
 from io import BytesIO
@@ -13,7 +14,7 @@ import openpyxl
 # 新增：重试机制+A股备用数据源
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-# 全局配置：中文显示+页面设置
+# 全局配置：页面设置+matplotlib中文字体配置（修复核心错误）
 st.set_page_config(
     page_title="港美A股股权激励期权估值工具（稳定版）",
     page_icon="📈",
@@ -21,8 +22,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 warnings.filterwarnings("ignore")  # 屏蔽无关警告
-st.rcParams["font.sans-serif"] = ["WenQuanYi Zen Hei", "SimHei"]
-st.rcParams["axes.unicode_minus"] = False
+# 修正：用matplotlib的plt.rcParams配置字体，而非st.rcParams
+plt.rcParams["font.sans-serif"] = ["WenQuanYi Zen Hei", "SimHei", "DejaVu Sans"]
+plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
 
 # ====================== 核心工具函数 ======================
 # 1. Ticker格式校验与自动补全（杜绝格式错误）
