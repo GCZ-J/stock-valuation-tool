@@ -1,3 +1,7 @@
+# 新增雪球抓取依赖
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+# 原有依赖保留
 streamlit>=1.30.0
 yfinance>=0.2.33
 pandas>=2.1.4
@@ -6,4 +10,4 @@ scipy>=1.11.4
 matplotlib>=3.8.0
 tenacity>=8.2.3
 openpyxl>=3.1.2
-akshare>=1.10.0  # A股备用数据源（可选）
+akshare>=1.10.0
