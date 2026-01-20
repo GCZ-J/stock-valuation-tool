@@ -1,13 +1,9 @@
-# 核心依赖
 streamlit>=1.30.0
-pandas>=2.1.0
-numpy>=1.26.0
-scipy>=1.11.0
-openpyxl>=3.1.0
-
-# 股价抓取依赖（双数据源）
-yfinance>=0.2.31
-akshare>=1.10.0
-
-# 自动重试依赖
+yfinance>=0.2.33
+pandas>=2.1.4
+numpy>=1.26.3
+scipy>=1.11.4
+matplotlib>=3.8.0
 tenacity>=8.2.3
+openpyxl>=3.1.2
+akshare>=1.10.0  # A股备用数据源（可选）
