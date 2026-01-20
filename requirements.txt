@@ -1,6 +1,13 @@
-numpy>=1.26.0
-scipy>=1.11.0
-matplotlib>=3.8.0
+# 核心依赖
 streamlit>=1.30.0
 pandas>=2.1.0
+numpy>=1.26.0
+scipy>=1.11.0
 openpyxl>=3.1.0
+
+# 股价抓取依赖（双数据源）
+yfinance>=0.2.31
+akshare>=1.10.0
+
+# 自动重试依赖
+tenacity>=8.2.3
