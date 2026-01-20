@@ -1,7 +1,4 @@
-# 新增雪球抓取依赖
-requests>=2.31.0
-beautifulsoup4>=4.12.2
-# 原有依赖保留
+# 核心依赖
 streamlit>=1.30.0
 yfinance>=0.2.33
 pandas>=2.1.4
@@ -10,4 +7,10 @@ scipy>=1.11.4
 matplotlib>=3.8.0
 tenacity>=8.2.3
 openpyxl>=3.1.2
+
+# 网页抓取依赖（港股专用）
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+
+# A股专用依赖
 akshare>=1.10.0
