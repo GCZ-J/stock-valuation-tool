@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# 港美A股股权激励估值工具（无代码显示+黑色科技风）
-# 核心修复：按钮纯文本+spinner参数错误+动图仅在提示区显示
+# 港美A股股权激励估值工具（完整边框+无代码+关键结论正常）
+# 核心修复：1.估值结果卡片包裹所有内容 2.纯文本无HTML 3.关键结论完整 4.代码无截断
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -20,7 +20,7 @@ st.set_page_config(
 )
 warnings.filterwarnings("ignore")
 
-# 自定义CSS（黑色高科技风格）
+# 自定义CSS（优化卡片布局+黑色高科技风格）
 st.markdown("""
     <style>
     /* 全局深色背景 */
@@ -45,7 +45,7 @@ st.markdown("""
         font-weight: 500;
         margin-bottom: 2rem;
     }
-    /* 科技感卡片 */
+    /* 基础科技卡片 */
     .card {
         background-color: #1e1e1e;
         border-radius: 12px;
@@ -54,7 +54,17 @@ st.markdown("""
         margin-bottom: 1.5rem;
         border: 1px solid #333333;
     }
-    /* 按钮科技风格（纯文本，无HTML） */
+    /* 估值结果卡片（荧光边框+完整包裹内容） */
+    .result-card {
+        background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+        border-radius: 12px;
+        padding: 2rem 1.5rem; /* 增加上下内边距 */
+        border: 1px solid #00ffff;
+        box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+        margin-bottom: 1.5rem;
+        width: 100%; /* 确保宽度100% */
+    }
+    /* 按钮科技风格（纯文本） */
     .stButton>button {
         background-color: #1e1e1e;
         color: #00ffff;
@@ -84,6 +94,7 @@ st.markdown("""
         padding: 1rem;
         text-align: center;
         border: 1px solid #333333;
+        margin-bottom: 0.5rem;
     }
     /* 侧边栏深色风格 */
     [data-testid="stSidebar"] {
@@ -107,7 +118,7 @@ st.markdown("""
         background-color: #333333;
         margin: 1.5rem 0;
     }
-    /* 提示文本（高亮） */
+    /* 提示文本 */
     .hint-text {
         color: #e0e0e0;
         font-size: 0.875rem;
@@ -118,14 +129,6 @@ st.markdown("""
         color: #00ffff;
         font-size: 0.9rem;
         line-height: 1.5;
-    }
-    /* 结果卡片（荧光边框） */
-    .result-card {
-        background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
-        border-radius: 12px;
-        padding: 1.5rem;
-        border: 1px solid #00ffff;
-        box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
     }
     /* 禁用提示 */
     .disabled-hint {
@@ -138,6 +141,7 @@ st.markdown("""
     [data-testid="stExpander"] {
         background-color: #1e1e1e;
         border: 1px solid #333333;
+        margin-bottom: 0.5rem;
     }
     [data-testid="stExpander"] summary {
         color: #80ffff;
@@ -156,19 +160,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ====================== 高科技动图资源（仅在提示区显示）======================
-GIF_ICONS = {
-    "success": "https://i.gifer.com/6NO.gif",
-    "warning": "https://i.gifer.com/7XU.gif",
-    "error": "https://i.gifer.com/7XW.gif",
-    "delta": "https://i.gifer.com/3Q4.gif",
-    "download": "https://i.gifer.com/6NQ.gif"
-}
-
-# 动图渲染函数（仅用于非按钮区域）
-def render_gif(icon_key, size="16px"):
-    return f'<img src="{GIF_ICONS[icon_key]}" width="{size}" height="{size}" style="vertical-align: middle; margin-right: 8px;">'
-
 # ====================== 数据源函数 =======================
 def us_stock_crawler(ticker):
     try:
@@ -179,9 +170,9 @@ def us_stock_crawler(ticker):
             hist_data = hist_data[["Close"]].reset_index()
             hist_data.rename(columns={"Date":"日期", "Close":"收盘价"}, inplace=True)
             hist_data["日期"] = hist_data["日期"].dt.date
-            return latest_close, hist_data, f'<span class="result-text">{render_gif("success")} 美股-{ticker} 收盘价={latest_close:.2f}</span>'
+            return latest_close, hist_data, f'<span class="result-text">✅ 美股-{ticker} 收盘价={latest_close:.2f}</span>'
     except Exception as e:
-        return None, None, f'<span class="result-text">{render_gif("error")} 美股-{ticker} 抓取失败：{str(e)[:30]}</span>'
+        return None, None, f'<span class="result-text">❌ 美股-{ticker} 抓取失败：{str(e)[:30]}</span>'
 
 def cn_stock_crawler(ticker):
     try:
@@ -198,7 +189,7 @@ def cn_stock_crawler(ticker):
             latest_close = round(hist_data["收盘"].iloc[-1], 2)
             hist_data = hist_data[["日期", "收盘"]].rename(columns={"收盘":"收盘价"})
             hist_data["日期"] = pd.to_datetime(hist_data["日期"]).dt.date
-            return latest_close, hist_data, f'<span class="result-text">{render_gif("success")} A股-{ticker_full} 收盘价={latest_close:.2f}</span>'
+            return latest_close, hist_data, f'<span class="result-text">✅ A股-{ticker_full} 收盘价={latest_close:.2f}</span>'
     except Exception as e:
         pass
 
@@ -211,47 +202,48 @@ def cn_stock_crawler(ticker):
             hist_data = hist_data[["Close"]].reset_index()
             hist_data.rename(columns={"Date":"日期", "Close":"收盘价"}, inplace=True)
             hist_data["日期"] = hist_data["日期"].dt.date
-            return latest_close, hist_data, f'<span class="result-text">{render_gif("success")} A股-{ticker_full} 收盘价={latest_close:.2f}</span>'
+            return latest_close, hist_data, f'<span class="result-text">✅ A股-{ticker_full} 收盘价={latest_close:.2f}</span>'
     except Exception as e:
-        return None, None, f'<span class="result-text">{render_gif("error")} A股-{ticker} 抓取失败：{str(e)[:30]}</span>'
+        return None, None, f'<span class="result-text">❌ A股-{ticker} 抓取失败：{str(e)[:30]}</span>'
 
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker, market_type):
     ticker = ticker.strip()
     if market_type == "美股":
         if not ticker.isalpha():
-            return None, None, f'<span class="result-text">{render_gif("error")} 美股Ticker必须是纯字母（如LI、AAPL）</span>'
+            return None, None, f'<span class="result-text">❌ 美股Ticker必须是纯字母（如LI、AAPL）</span>'
         return us_stock_crawler(ticker)
     elif market_type == "A股":
         if not ticker.isdigit() or len(ticker) != 6:
-            return None, None, f'<span class="result-text">{render_gif("error")} A股Ticker必须是6位数字（如600000）</span>'
+            return None, None, f'<span class="result-text">❌ A股Ticker必须是6位数字（如600000）</span>'
         return cn_stock_crawler(ticker)
     elif market_type == "港股":
-        return None, None, f'<span class="result-text">{render_gif("warning")} 港股请手动输入价格和波动率</span>'
+        return None, None, f'<span class="result-text">⚠️ 港股请手动输入价格和波动率</span>'
     else:
-        return None, None, f'<span class="result-text">{render_gif("error")} 请选择正确市场</span>'
+        return None, None, f'<span class="result-text">❌ 请选择正确市场</span>'
 
-# ====================== 核心工具函数 =======================
+# ====================== 波动率计算 =======================
 def calculate_hist_vol(hist_data):
     try:
         if hist_data is None or hist_data.empty or len(hist_data) < 20:
-            return None, f'<span class="result-text">{render_gif("error")} 历史数据不足（至少20条）</span>'
+            return None, f'<span class="result-text">❌ 历史数据不足（至少20条）</span>'
         
         hist_data["日收益率"] = hist_data["收盘价"].pct_change()
         daily_vol = hist_data["日收益率"].std()
         annual_vol = daily_vol * np.sqrt(252)
-        return round(annual_vol, 4), f'<span class="result-text">{render_gif("success")} 历史波动率：{round(annual_vol*100, 2)}%</span>'
+        return round(annual_vol, 4), f'<span class="result-text">✅ 历史波动率：{round(annual_vol*100, 2)}%</span>'
     except Exception as e:
-        return None, f'<span class="result-text">{render_gif("error")} 波动率计算失败：{str(e)[:50]}</span>'
+        return None, f'<span class="result-text">❌ 波动率计算失败：{str(e)[:50]}</span>'
 
+# ====================== Delta解读函数（纯文本完整版）======================
 def delta_interpretation(delta_value, option_type):
     delta_abs = abs(delta_value)
     interpretation = []
     
     if option_type == "call":
-        interpretation.append(f'{render_gif("delta")} 认购期权Delta={delta_value:.4f}：标的价格每上涨1元，期权价格上涨{delta_value:.4f}元')
+        interpretation.append(f"认购期权Delta={delta_value:.4f}：标的价格每上涨1元，期权价格上涨{delta_value:.4f}元")
     else:
-        interpretation.append(f'{render_gif("delta")} 认沽期权Delta={delta_value:.4f}：标的价格每上涨1元，期权价格下跌{abs(delta_value):.4f}元')
+        interpretation.append(f"认沽期权Delta={delta_value:.4f}：标的价格每上涨1元，期权价格下跌{abs(delta_value):.4f}元")
     
     if option_type == "call":
         if delta_abs > 0.7:
@@ -278,6 +270,7 @@ def delta_interpretation(delta_value, option_type):
     
     return "\n".join(interpretation)
 
+# ====================== 估值核心函数 =======================
 def option_valuation(S, K, T, r, sigma, option_type="call"):
     results = {}
     
@@ -378,6 +371,7 @@ def option_valuation(S, K, T, r, sigma, option_type="call"):
     
     return results
 
+# ====================== 导出报告函数 =======================
 def export_report(params, vol, model_results):
     data = [
         ["估值日期", datetime.now().strftime("%Y-%m-%d")],
@@ -407,7 +401,7 @@ def export_report(params, vol, model_results):
     output.seek(0)
     return output, f"股权激励估值报告_{datetime.now().strftime('%Y%m%d')}.xlsx"
 
-# ====================== UI布局（按钮纯文本，无代码显示）======================
+# ====================== UI布局（核心修复：卡片包裹完整）======================
 # 头部标题
 st.markdown('<h1 class="title-main">📊 港美A股股权激励估值工具</h1>', unsafe_allow_html=True)
 st.markdown('<h3 class="title-sub">专业估值模型 · 美股/A股自动抓取 · 港股手动输入 · 黑色科技版</h3>', unsafe_allow_html=True)
@@ -442,40 +436,39 @@ with st.sidebar:
     else:
         st.markdown(f'<p class="hint-text">⚠️ 输入对应市场的标的代码</p>', unsafe_allow_html=True)
     
-    # 抓取按钮（纯文本，无HTML，解决代码显示问题）
+    # 抓取按钮（纯文本）
     col1, col2 = st.columns(2)
     with col1:
         fetch_btn = st.button(
-            "🔄 抓取价格",  # 纯文本+基础emoji，无HTML
+            "🔄 抓取价格",
             use_container_width=True,
             disabled=(market_type == "港股")
         )
         if fetch_btn and market_type != "港股":
             if ticker_input:
-                # 修复spinner：仅传纯文本，去掉unsafe_allow_html
                 with st.spinner("🔄 数据抓取中..."):
                     latest_close, hist_data, msg = get_stock_data(ticker_input, market_type)
                 if isinstance(msg, str):
-                    st.markdown(msg, unsafe_allow_html=True)  # 提示区渲染动图
+                    st.markdown(msg, unsafe_allow_html=True)
                     if "success" in msg and latest_close:
                         st.session_state["S"] = latest_close
                         st.session_state["hist_data"] = hist_data
                 else:
-                    st.markdown(f'<span class="result-text">{render_gif("error")} 数据抓取返回异常</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span class="result-text">❌ 数据抓取返回异常</span>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<span class="result-text">{render_gif("warning")} 请输入标的代码</span>', unsafe_allow_html=True)
+                st.markdown(f'<span class="result-text">⚠️ 请输入标的代码</span>', unsafe_allow_html=True)
         if market_type == "港股":
             st.markdown('<p class="disabled-hint">港股手动输入</p>', unsafe_allow_html=True)
     
     with col2:
         vol_btn = st.button(
-            "📈 计算波动率",  # 纯文本+基础emoji，无HTML
+            "📈 计算波动率",
             use_container_width=True,
             disabled=(market_type == "港股")
         )
         if vol_btn and market_type != "港股":
             if ticker_input:
-                with st.spinner("📈 波动率计算中..."):  # 纯文本spinner
+                with st.spinner("📈 波动率计算中..."):
                     _, hist_data, msg = get_stock_data(ticker_input, market_type)
                 if isinstance(msg, str):
                     if hist_data is not None:
@@ -487,7 +480,7 @@ with st.sidebar:
                     else:
                         st.markdown(msg, unsafe_allow_html=True)
             else:
-                st.markdown(f'<span class="result-text">{render_gif("warning")} 请输入标的代码</span>', unsafe_allow_html=True)
+                st.markdown(f'<span class="result-text">⚠️ 请输入标的代码</span>', unsafe_allow_html=True)
         if market_type == "港股":
             st.markdown('<p class="disabled-hint">港股手动输入</p>', unsafe_allow_html=True)
     
@@ -569,7 +562,7 @@ with st.sidebar:
     # 估值按钮（纯文本）
     st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
     calculate_btn = st.button(
-        "🚀 开始估值",  # 纯文本+基础emoji
+        "🚀 开始估值",
         type="primary",
         use_container_width=True
     )
@@ -578,7 +571,7 @@ with st.sidebar:
 if calculate_btn:
     # 基础参数校验
     if market_type == "港股" and (S <= 0 or K <= 0 or sigma <= 0):
-        st.markdown(f'<span class="result-text">{render_gif("error", "24px")} 港股请输入有效的价格、行权价和波动率</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="result-text">❌ 港股请输入有效的价格、行权价和波动率</span>', unsafe_allow_html=True)
     else:
         params = {
             "market": market_type,
@@ -593,9 +586,9 @@ if calculate_btn:
         
         # 计算波动率
         hist_data = st.session_state.get("hist_data") if market_type != "港股" else None
-        vol, vol_msg = calculate_hist_vol(hist_data) if hist_data is not None else (None, f'<span class="result-text">{render_gif("warning")} 未抓取历史数据</span>')
+        vol, vol_msg = calculate_hist_vol(hist_data) if hist_data is not None else (None, f'<span class="result-text">⚠️ 未抓取历史数据</span>')
         
-        # 估值计算（纯文本spinner）
+        # 估值计算
         with st.spinner("🚀 估值模型计算中..."):
             model_results = option_valuation(S, K, T, r, sigma, params["option_type"])
         
@@ -614,23 +607,27 @@ if calculate_btn:
             st.markdown('<div class="metric-card"><h5 style="margin:0; color:#00ffff;">历史波动率</h5><p style="font-size:1.25rem; margin:0.5rem 0 0 0;">{}</p></div>'.format(hist_vol_text), unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # 估值结果卡片
-        st.markdown('<div class="result-card"><h4 style="color:#00ffff; margin:0 0 1.5rem 0;">🎯 估值模型结果</h4>', unsafe_allow_html=True)
+        # ========== 核心修复：估值结果卡片完整包裹所有内容 ==========
+        st.markdown('<div class="result-card">', unsafe_allow_html=True)  # 打开卡片div
+        st.markdown('<h4 style="color:#00ffff; margin:0 0 1.5rem 0;">🎯 估值模型结果</h4>', unsafe_allow_html=True)
+        
+        # 三个估值模型列 - 放在卡片内部
         model_cols = st.columns(3)
         for idx, (model_name, res) in enumerate(model_results.items()):
             with model_cols[idx]:
                 st.markdown(f'<h5 style="color:#80ffff; margin:0;">{model_name}</h5>', unsafe_allow_html=True)
                 st.markdown(f'<p style="font-size:1.5rem; margin:0.5rem 0; color:#00ffff;">{res["price"]:.4f}</p>', unsafe_allow_html=True)
                 st.markdown(f'<p style="color:#e0e0e0; margin:0 0 0.5rem 0;">Delta：{res["delta"]:.4f}</p>', unsafe_allow_html=True)
-                st.markdown(f'<p style="font-size:0.875rem; color:#e0e0e0; margin:0;">💡 {res["desc"]}</p>', unsafe_allow_html=True)
+                st.markdown(f'<p style="font-size:0.875rem; color:#e0e0e0; margin:0 0 1rem 0;">💡 {res["desc"]}</p>', unsafe_allow_html=True)
                 
-                # Delta解读（动图正常显示）
-                with st.expander(f"{render_gif('delta')} Delta专业解读", expanded=False):
+                # Delta解读（纯文本标题）
+                with st.expander("📊 Delta专业解读", expanded=False):
                     st.markdown(f'<div style="color:#e0e0e0; line-height:1.6;">{res["delta_interpret"]}</div>', unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # 关闭卡片div
+        # ========== 估值结果卡片修复结束 ==========
         
-        # 关键结论
+        # 关键结论（完整显示）
         st.markdown('<div class="card"><h4 style="color:#00ffff; margin:0 0 1rem 0;">✅ 关键结论</h4>', unsafe_allow_html=True)
         delta_abs = abs(model_results["Black-Scholes"]["delta"])
         if delta_abs > 0.7:
@@ -642,21 +639,23 @@ if calculate_btn:
         else:
             option_status = "深度虚值"
             incentive_effect = "差，需降低行权价或延长锁定期"
+        
+        # 关键结论完整HTML（无嵌套错误）
         conclusion_text = f"""
-            <ul style="color:#e0e0e0; line-height:1.8; margin:0;">
-                <li>{render_gif("success")} 蒙特卡洛结果已收敛到BS/二叉树区间，消除抽样误差；</li>
-                <li>{render_gif("success")} 二叉树采用500步高精度计算，结果与BS模型高度一致；</li>
-                <li>{render_gif("delta")} Delta值显示当前为{option_status}期权，股权激励效果{incentive_effect}。</li>
+            <ul style="color:#e0e0e0; line-height:1.8; margin:0; padding-left:1.5rem;">
+                <li>✅ 蒙特卡洛结果已收敛到BS/二叉树区间，消除抽样误差；</li>
+                <li>✅ 二叉树采用500步高精度计算，结果与BS模型高度一致；</li>
+                <li>📊 Delta值显示当前为{option_status}期权，股权激励效果{incentive_effect}。</li>
             </ul>
         """
         st.markdown(conclusion_text, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # 导出按钮（纯文本+动图在提示区）
+        # 导出按钮
         st.markdown('<div style="margin-top:1.5rem;"></div>', unsafe_allow_html=True)
         excel_data, filename = export_report(params, vol, model_results)
         st.download_button(
-            label=f"{render_gif('download', '16px')} 导出完整估值报告（Excel）",
+            label="📥 导出完整估值报告（Excel）",
             data=excel_data,
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
