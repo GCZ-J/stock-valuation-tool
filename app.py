@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-# 港美A股股权激励估值工具（完整边框+无代码+关键结论正常）
-# 核心修复：1.估值结果卡片包裹所有内容 2.纯文本无HTML 3.关键结论完整 4.代码无截断
+# 港美A股股权激励估值工具（移除关键结论+波动率可选+边框完整+交易日基数备注）
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -20,7 +19,7 @@ st.set_page_config(
 )
 warnings.filterwarnings("ignore")
 
-# 自定义CSS（优化卡片布局+黑色高科技风格）
+# 自定义CSS（核心：估值结果边框强制包裹+溢出控制）
 st.markdown("""
     <style>
     /* 全局深色背景 */
@@ -54,17 +53,25 @@ st.markdown("""
         margin-bottom: 1.5rem;
         border: 1px solid #333333;
     }
-    /* 估值结果卡片（荧光边框+完整包裹内容） */
+    /* 估值结果卡片（强制包裹+无溢出） */
     .result-card {
         background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
         border-radius: 12px;
-        padding: 2rem 1.5rem; /* 增加上下内边距 */
+        padding: 2rem 1.5rem;
         border: 1px solid #00ffff;
         box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
         margin-bottom: 1.5rem;
-        width: 100%; /* 确保宽度100% */
+        width: 100%;
+        overflow: hidden;
+        position: relative;
     }
-    /* 按钮科技风格（纯文本） */
+    /* 修复列容器溢出问题 */
+    .result-card [data-testid="column"] {
+        width: 100% !important;
+        flex: none !important;
+        margin: 0 !important;
+    }
+    /* 按钮科技风格 */
     .stButton>button {
         background-color: #1e1e1e;
         color: #00ffff;
@@ -96,7 +103,7 @@ st.markdown("""
         border: 1px solid #333333;
         margin-bottom: 0.5rem;
     }
-    /* 侧边栏深色风格 */
+    /* 侧边栏风格 */
     [data-testid="stSidebar"] {
         background-color: #1e1e1e;
         border-right: 1px solid #333333;
@@ -124,7 +131,14 @@ st.markdown("""
         font-size: 0.875rem;
         margin-top: 0.25rem;
     }
-    /* 结果提示文本（高亮青色） */
+    /* 备注文本（交易日基数） */
+    .note-text {
+        color: #00cccc;
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+        font-style: italic;
+    }
+    /* 结果提示文本 */
     .result-text {
         color: #00ffff;
         font-size: 0.9rem;
@@ -135,7 +149,7 @@ st.markdown("""
         color: #999999;
         font-size: 0.875rem;
         text-align: center;
-        margin-top: 0.5rem;
+        margin-top: 0.25rem;
     }
     /* 折叠面板 */
     [data-testid="stExpander"] {
@@ -222,7 +236,7 @@ def get_stock_data(ticker, market_type):
     else:
         return None, None, f'<span class="result-text">❌ 请选择正确市场</span>'
 
-# ====================== 波动率计算 =======================
+# ====================== 波动率计算（标注252个交易日基数） =======================
 def calculate_hist_vol(hist_data):
     try:
         if hist_data is None or hist_data.empty or len(hist_data) < 20:
@@ -230,12 +244,12 @@ def calculate_hist_vol(hist_data):
         
         hist_data["日收益率"] = hist_data["收盘价"].pct_change()
         daily_vol = hist_data["日收益率"].std()
-        annual_vol = daily_vol * np.sqrt(252)
+        annual_vol = daily_vol * np.sqrt(252)  # 252个交易日基数
         return round(annual_vol, 4), f'<span class="result-text">✅ 历史波动率：{round(annual_vol*100, 2)}%</span>'
     except Exception as e:
         return None, f'<span class="result-text">❌ 波动率计算失败：{str(e)[:50]}</span>'
 
-# ====================== Delta解读函数（纯文本完整版）======================
+# ====================== Delta解读函数 =======================
 def delta_interpretation(delta_value, option_type):
     delta_abs = abs(delta_value)
     interpretation = []
@@ -297,7 +311,7 @@ def option_valuation(S, K, T, r, sigma, option_type="call"):
     except Exception as e:
         results["Black-Scholes"] = {"price": 0.0, "delta": 0.0, "desc": f"计算失败：{str(e)[:30]}", "delta_interpret": "计算失败"}
     
-    # 蒙特卡洛模拟（收敛版）
+    # 蒙特卡洛模拟
     try:
         n_sim = 1000000
         n_steps = 16
@@ -342,7 +356,7 @@ def option_valuation(S, K, T, r, sigma, option_type="call"):
     except Exception as e:
         results["蒙特卡洛模拟"] = {"price": 0.0, "delta": 0.0, "desc": f"计算失败：{str(e)[:30]}", "delta_interpret": "计算失败"}
     
-    # 二叉树模型（500步）
+    # 二叉树模型
     try:
         n_steps = 500
         dt = T / n_steps
@@ -383,6 +397,7 @@ def export_report(params, vol, model_results):
         ["无风险利率", f"{params['r']*100}%"],
         ["波动率", f"{params['sigma']*100}%"],
         ["历史波动率", f"{vol*100}%" if vol else "未计算"],
+        ["波动率计算基数", "252个交易日（A股/美股通用）"],
         ["期权类型", params["option_type"]],
         ["---", "---"],
         ["模型", "期权价格", "Delta值", "模型说明"],
@@ -401,7 +416,7 @@ def export_report(params, vol, model_results):
     output.seek(0)
     return output, f"股权激励估值报告_{datetime.now().strftime('%Y%m%d')}.xlsx"
 
-# ====================== UI布局（核心修复：卡片包裹完整）======================
+# ====================== UI布局 =======================
 # 头部标题
 st.markdown('<h1 class="title-main">📊 港美A股股权激励估值工具</h1>', unsafe_allow_html=True)
 st.markdown('<h3 class="title-sub">专业估值模型 · 美股/A股自动抓取 · 港股手动输入 · 黑色科技版</h3>', unsafe_allow_html=True)
@@ -418,7 +433,7 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
-    # Ticker输入（港股禁用）
+    # Ticker输入
     ticker_placeholder = {
         "港股": "港股无需输入代码（手动输入价格）",
         "美股": "LI（理想汽车）",
@@ -436,7 +451,7 @@ with st.sidebar:
     else:
         st.markdown(f'<p class="hint-text">⚠️ 输入对应市场的标的代码</p>', unsafe_allow_html=True)
     
-    # 抓取按钮（纯文本）
+    # 抓取按钮
     col1, col2 = st.columns(2)
     with col1:
         fetch_btn = st.button(
@@ -462,7 +477,7 @@ with st.sidebar:
     
     with col2:
         vol_btn = st.button(
-            "📈 计算波动率",
+            "📈 计算历史波动率",
             use_container_width=True,
             disabled=(market_type == "港股")
         )
@@ -476,9 +491,10 @@ with st.sidebar:
                         if isinstance(vol_msg, str):
                             st.markdown(vol_msg, unsafe_allow_html=True)
                             if "success" in vol_msg:
-                                st.session_state["sigma"] = vol
-                    else:
-                        st.markdown(msg, unsafe_allow_html=True)
+                                st.session_state["calc_sigma"] = vol
+                                st.markdown('<p class="note-text">📝 波动率计算基数：252个交易日</p>', unsafe_allow_html=True)
+                else:
+                    st.markdown(msg, unsafe_allow_html=True)
             else:
                 st.markdown(f'<span class="result-text">⚠️ 请输入标的代码</span>', unsafe_allow_html=True)
         if market_type == "港股":
@@ -540,16 +556,35 @@ with st.sidebar:
         format="%.1f"
     ) / 100
     
-    # 波动率
-    default_sigma = st.session_state.get("sigma", 0.485) if market_type != "港股" else 0.000
-    sigma = st.number_input(
-        "波动率（小数）",
-        min_value=0.01,
-        value=default_sigma,
-        step=0.001,
+    # 波动率可选逻辑
+    st.markdown('<h5 style="color:#80ffff; margin:1rem 0 0.5rem 0;">📈 波动率设置</h5>', unsafe_allow_html=True)
+    vol_option = st.radio(
+        "选择波动率来源",
+        ["手动输入", "使用计算的历史波动率"],
         label_visibility="collapsed",
-        format="%.3f"
+        horizontal=True
     )
+    
+    if vol_option == "使用计算的历史波动率":
+        default_sigma = st.session_state.get("calc_sigma", 0.485)
+        sigma = st.number_input(
+            "波动率（自动填充计算值）",
+            min_value=0.01,
+            value=default_sigma,
+            step=0.001,
+            label_visibility="collapsed",
+            format="%.3f"
+        )
+        st.markdown('<p class="note-text">📝 波动率计算基数：252个交易日</p>', unsafe_allow_html=True)
+    else:
+        sigma = st.number_input(
+            "波动率（手动输入）",
+            min_value=0.01,
+            value=0.485,
+            step=0.001,
+            label_visibility="collapsed",
+            format="%.3f"
+        )
     
     # 期权类型
     option_type = st.selectbox(
@@ -559,8 +594,8 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
-    # 估值按钮（纯文本）
-    st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
+    # 估值按钮
+    st.markdown('<div style="margin-top:1.5rem;"></div>', unsafe_allow_html=True)
     calculate_btn = st.button(
         "🚀 开始估值",
         type="primary",
@@ -584,9 +619,9 @@ if calculate_btn:
             "option_type": option_type.split("（")[0]
         }
         
-        # 计算波动率
+        # 计算历史波动率（用于导出报告）
         hist_data = st.session_state.get("hist_data") if market_type != "港股" else None
-        vol, vol_msg = calculate_hist_vol(hist_data) if hist_data is not None else (None, f'<span class="result-text">⚠️ 未抓取历史数据</span>')
+        vol, _ = calculate_hist_vol(hist_data) if hist_data is not None else (None, None)
         
         # 估值计算
         with st.spinner("🚀 估值模型计算中..."):
@@ -600,18 +635,18 @@ if calculate_btn:
         with col2:
             st.markdown('<div class="metric-card"><h5 style="margin:0; color:#00ffff;">行权价</h5><p style="font-size:1.25rem; margin:0.5rem 0 0 0;">{:.2f}</p></div>'.format(K), unsafe_allow_html=True)
         with col3:
-            vol_text = f"{sigma*100:.1f}%" if sigma else "未计算"
+            vol_text = f"{sigma*100:.1f}%"
             st.markdown('<div class="metric-card"><h5 style="margin:0; color:#00ffff;">使用波动率</h5><p style="font-size:1.25rem; margin:0.5rem 0 0 0;">{}</p></div>'.format(vol_text), unsafe_allow_html=True)
         with col4:
-            hist_vol_text = f"{vol*100:.1f}%" if vol else "手动输入" if market_type == "港股" else "未计算"
+            hist_vol_text = f"{vol*100:.1f}%" if vol else "未计算"
             st.markdown('<div class="metric-card"><h5 style="margin:0; color:#00ffff;">历史波动率</h5><p style="font-size:1.25rem; margin:0.5rem 0 0 0;">{}</p></div>'.format(hist_vol_text), unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # ========== 核心修复：估值结果卡片完整包裹所有内容 ==========
-        st.markdown('<div class="result-card">', unsafe_allow_html=True)  # 打开卡片div
+        # 估值结果卡片（完整包裹）
+        st.markdown('<div class="result-card">', unsafe_allow_html=True)
         st.markdown('<h4 style="color:#00ffff; margin:0 0 1.5rem 0;">🎯 估值模型结果</h4>', unsafe_allow_html=True)
         
-        # 三个估值模型列 - 放在卡片内部
+        # 三个估值模型列
         model_cols = st.columns(3)
         for idx, (model_name, res) in enumerate(model_results.items()):
             with model_cols[idx]:
@@ -620,35 +655,10 @@ if calculate_btn:
                 st.markdown(f'<p style="color:#e0e0e0; margin:0 0 0.5rem 0;">Delta：{res["delta"]:.4f}</p>', unsafe_allow_html=True)
                 st.markdown(f'<p style="font-size:0.875rem; color:#e0e0e0; margin:0 0 1rem 0;">💡 {res["desc"]}</p>', unsafe_allow_html=True)
                 
-                # Delta解读（纯文本标题）
+                # Delta解读
                 with st.expander("📊 Delta专业解读", expanded=False):
                     st.markdown(f'<div style="color:#e0e0e0; line-height:1.6;">{res["delta_interpret"]}</div>', unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)  # 关闭卡片div
-        # ========== 估值结果卡片修复结束 ==========
-        
-        # 关键结论（完整显示）
-        st.markdown('<div class="card"><h4 style="color:#00ffff; margin:0 0 1rem 0;">✅ 关键结论</h4>', unsafe_allow_html=True)
-        delta_abs = abs(model_results["Black-Scholes"]["delta"])
-        if delta_abs > 0.7:
-            option_status = "深度实值"
-            incentive_effect = "强，但行权价偏低（成本高）"
-        elif delta_abs > 0.3:
-            option_status = "平值"
-            incentive_effect = "均衡，行权价设置合理"
-        else:
-            option_status = "深度虚值"
-            incentive_effect = "差，需降低行权价或延长锁定期"
-        
-        # 关键结论完整HTML（无嵌套错误）
-        conclusion_text = f"""
-            <ul style="color:#e0e0e0; line-height:1.8; margin:0; padding-left:1.5rem;">
-                <li>✅ 蒙特卡洛结果已收敛到BS/二叉树区间，消除抽样误差；</li>
-                <li>✅ 二叉树采用500步高精度计算，结果与BS模型高度一致；</li>
-                <li>📊 Delta值显示当前为{option_status}期权，股权激励效果{incentive_effect}。</li>
-            </ul>
-        """
-        st.markdown(conclusion_text, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
         # 导出按钮
