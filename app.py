@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 港美A股股权激励估值工具（期限匹配无风险利率+股息率+进度条+高对比度导出）
+# 港美A股股权激励估值工具（低饱和度背景+期限匹配无风险利率+股息率+进度条）
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -14,7 +14,7 @@ import time
 
 # ====================== 全局配置 =======================
 st.set_page_config(
-    page_title="股权激励估值工具 | 期限匹配版",
+    page_title="股权激励估值工具 | 低饱和版",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -34,48 +34,49 @@ if "q_auto" not in st.session_state:
     st.session_state["q_auto"] = 0.00
 if "q" not in st.session_state:
     st.session_state["q"] = 0.00
+if "T_input" not in st.session_state:
+    st.session_state["T_input"] = 4.0
+if "matched_tenor" not in st.session_state:
+    st.session_state["matched_tenor"] = "4年（默认）"
 
-# 自定义CSS（保留原有样式）
+# 核心修改：低饱和度深色CSS，保证文字清晰
 st.markdown("""
     <style>
-    /* 全局深色背景 */
+    /* 全局低饱和深灰背景 */
     * {
         font-family: "Roboto Mono", "Consolas", "Microsoft YaHei", monospace;
         box-sizing: border-box;
     }
     .main, [data-testid="stAppViewContainer"] {
-        background-color: #121212;
+        background-color: #181818; /* 低饱和深灰，替代纯黑 */
         color: #e0e0e0;
         padding: 0 2rem;
     }
-    /* 标题样式 */
+    /* 标题样式：保留清晰高亮，无阴影 */
     .title-main {
         color: #00ffff;
         font-weight: 700;
         margin-bottom: 0.5rem;
-        text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
     }
     .title-sub {
         color: #80ffff;
         font-weight: 500;
         margin-bottom: 2rem;
     }
-    /* 基础科技卡片 */
+    /* 基础卡片：低饱和浅深灰，无亮色阴影 */
     .card {
-        background-color: #1e1e1e;
+        background-color: #222222; /* 低饱和卡片背景 */
         border-radius: 12px;
         padding: 1.5rem;
-        box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
+        border: 1px solid #333333; /* 低饱和边框 */
         margin-bottom: 1.5rem;
-        border: 1px solid #333333;
     }
-    /* 估值结果卡片 */
+    /* 估值结果卡片：纯低饱和背景，无渐变 */
     .result-card {
-        background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+        background-color: #222222;
         border-radius: 12px;
         padding: 2rem 1.5rem;
-        border: 1px solid #00ffff;
-        box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+        border: 1px solid #00ffff; /* 保留核心高亮边框，保证区分 */
         margin-bottom: 1.5rem;
         width: 100%;
         overflow: hidden;
@@ -86,9 +87,9 @@ st.markdown("""
         flex: none !important;
         margin: 0 !important;
     }
-    /* 按钮风格 */
+    /* 按钮风格：低饱和基础，hover轻微高亮 */
     .stButton>button {
-        background-color: #1e1e1e;
+        background-color: #222222;
         color: #00ffff;
         border: 1px solid #00ffff;
         border-radius: 8px;
@@ -96,41 +97,41 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     .stButton>button:hover {
-        background-color: #00ffff;
-        color: #121212;
-        box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+        background-color: #282828;
+        color: #00ffff;
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.3); /* 弱化阴影 */
         transform: translateY(-2px);
     }
     .stButton>button:disabled {
-        background-color: #2a2a2a;
+        background-color: #282828;
         color: #666666;
         border: 1px solid #333333;
         cursor: not-allowed;
         box-shadow: none;
         transform: none;
     }
-    /* 指标卡片 */
+    /* 指标卡片：更低饱和背景，保证文字对比 */
     .metric-card {
-        background-color: #2a2a2a;
+        background-color: #282828;
         border-radius: 8px;
         padding: 1rem;
         text-align: center;
         border: 1px solid #333333;
         margin-bottom: 0.5rem;
     }
-    /* 侧边栏风格 */
+    /* 侧边栏：低饱和深灰，与主背景区分 */
     [data-testid="stSidebar"] {
-        background-color: #1e1e1e;
+        background-color: #222222;
         border-right: 1px solid #333333;
     }
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] select {
-        background-color: #2a2a2a;
+        background-color: #282828;
         color: #e0e0e0;
         border: 1px solid #333333;
         border-radius: 6px;
     }
-    /* 文本样式 */
+    /* 文本样式：保留所有清晰色值，区分明确 */
     .hint-text {
         color: #e0e0e0;
         font-size: 0.875rem;
@@ -147,62 +148,54 @@ st.markdown("""
         font-size: 0.9rem;
         line-height: 1.5;
     }
-    /* 进度条文本 */
+    /* 进度条文本：清晰高亮，无多余样式 */
     .progress-text {
         color: #00ffff;
         font-size: 0.9rem;
         text-align: center;
         margin-bottom: 0.5rem;
     }
-    /* 导出按钮 高对比度 */
+    /* 导出按钮：保留高对比，弱化阴影，适配低饱和风格 */
     [data-testid="stDownloadButton"]>button {
         background-color: #00ffff;
         color: #000000;
         border: 2px solid #00ffff;
         font-weight: bold;
-        box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+        box-shadow: 0 0 8px rgba(0, 255, 255, 0.3); /* 弱化阴影 */
     }
     [data-testid="stDownloadButton"]>button:hover {
         background-color: #00cccc;
         color: #000000;
         border: 2px solid #00cccc;
-        box-shadow: 0 0 25px rgba(0, 255, 255, 0.8);
+        box-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
     }
-    /* 参数分割线 */
+    /* 参数分割线：低饱和，与背景融合 */
     .param-divider {
         height: 1px;
         background-color: #333333;
         margin: 0.8rem 0;
     }
+    /* 分隔线：低饱和 */
+    .divider {
+        height: 1px;
+        background-color: #333333;
+        margin: 1.5rem 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# ====================== 核心优化：期限匹配的无风险利率计算函数 =======================
+# ====================== 期限匹配的无风险利率计算函数 =======================
 def get_risk_free_rate_by_tenor(market_type, tenor_years):
-    """
-    根据期权期限（tenor_years，单位：年）获取匹配的无风险利率
-    返回：(利率值, 提示信息, 实际匹配期限)
-    """
+    """根据期权期限匹配对应无风险利率，返回(利率值, 提示信息, 实际匹配期限)"""
     try:
         if market_type == "A股":
-            # A股：中债国债收益率曲线，获取最接近期限的利率
             df = ak.bond_china_yield_cnbs(symbol=f"{int(tenor_years)}年国债" if tenor_years <= 10 else "10年国债")
             r = round(df["收益率(%)"].iloc[-1], 2)/100
             matched_tenor = f"{int(tenor_years)}年" if tenor_years <= 10 else "10年（最长可获取期限）"
             return r, f'<span class="result-text">✅ A股-{matched_tenor}中债收益率：{r*100:.2f}%</span>', matched_tenor
         
         elif market_type == "美股":
-            # 美股：美国财政部国债收益率，根据期限选择对应代码
-            tenor_map = {
-                0.5: "^IRX",    # 6个月
-                1: "^TYX",      # 10年（短期用10年替代）
-                2: "^TYX",
-                3: "^TYX",
-                5: "^FVX",      # 5年
-                10: "^TNX",     # 10年
-                30: "^TYX"      # 30年
-            }
-            # 找到最接近的期限
+            tenor_map = {0.5: "^IRX", 1: "^TYX", 2: "^TYX", 3: "^TYX", 5: "^FVX", 10: "^TNX", 30: "^TYX"}
             matched_tenor = min(tenor_map.keys(), key=lambda x: abs(x - tenor_years))
             ticker = tenor_map[matched_tenor]
             tbill = yf.Ticker(ticker)
@@ -210,36 +203,24 @@ def get_risk_free_rate_by_tenor(market_type, tenor_years):
             return r, f'<span class="result-text">✅ 美股-{matched_tenor}年期美债收益率：{r*100:.2f}%</span>', f"{matched_tenor}年"
         
         elif market_type == "港股":
-            # 港股：香港政府债券收益率（2026年1月最新10年期为3.17%）+ Hibor
-            # 优先使用香港政府债券数据，无数据时使用Hibor+溢价
             try:
-                # 尝试获取香港政府债券数据（1-10年）
                 if tenor_years <= 1:
-                    # 短期用1年期Hibor+0.2%溢价
                     hk_1y_hibor = yf.Ticker("HKD1Y=X").history(period="1d")["Close"].iloc[-1]/100
                     r = hk_1y_hibor + 0.002
                     matched_tenor = "1年（Hibor+溢价）"
                 else:
-                    # 长期使用10年期港债收益率（3.17%，2026年1月最新）
-                    r = 0.0317  # 香港10年期政府债券收益率（2026年1月）
+                    r = 0.0317  # 2026年1月香港10年期政府债券最新收益率
                     matched_tenor = "10年（香港政府债券）"
                 return r, f'<span class="result-text">✅ 港股-{matched_tenor}收益率：{r*100:.2f}%</span>', matched_tenor
             except:
-                # 备用方案：使用3.17%（2026年1月10年期港债收益率）
                 r = 0.0317
                 return r, f'<span class="result-text">✅ 港股-10年期港债收益率（最新）：{r*100:.2f}%</span>', "10年"
     
     except Exception as e:
-        # 异常处理：使用市场默认值
-        default_r = {
-            "A股": 0.03,
-            "美股": 0.04,
-            "港股": 0.0317  # 更新为2026年1月最新值，替代原2.5%
-        }[market_type]
-        return default_r, f'<span class="result-text">❌ 无风险利率抓取失败，使用默认值{default_r*100:.2f}%：{str(e)[:30]}</span>', "默认期限"
+        default_r = {"A股": 0.03, "美股": 0.04, "港股": 0.0317}[market_type]
+        return default_r, f'<span class="result-text">❌ 抓取失败，使用默认值{default_r*100:.2f}%：{str(e)[:30]}</span>', "默认期限"
 
-# ====================== 其他函数保持不变（略） =======================
-# 股息率自动抓取函数（原有）
+# ====================== 股息率自动抓取函数 =======================
 def get_dividend_yield(ticker, market_type):
     if market_type == "港股":
         return 0.0, f'<span class="result-text">⚠️ 港股暂不支持自动抓取股息率，请手动输入</span>'
@@ -257,7 +238,7 @@ def get_dividend_yield(ticker, market_type):
     except Exception as e:
         return 0.0, f'<span class="result-text">❌ 股息率抓取失败，设为0%：{str(e)[:30]}</span>'
 
-# 数据源函数（原有）
+# ====================== 数据源函数 =======================
 def us_stock_crawler(ticker):
     try:
         stock = yf.Ticker(ticker.upper())
@@ -317,7 +298,7 @@ def get_stock_data(ticker, market_type):
     else:
         return None, None, f'<span class="result-text">❌ 请选择正确市场</span>'
 
-# 波动率计算（原有）
+# ====================== 波动率计算 =======================
 def calculate_hist_vol(hist_data):
     try:
         if hist_data is None or hist_data.empty or len(hist_data) < 20:
@@ -329,7 +310,7 @@ def calculate_hist_vol(hist_data):
     except Exception as e:
         return None, f'<span class="result-text">❌ 波动率计算失败：{str(e)[:50]}</span>'
 
-# Delta解读函数（原有）
+# ====================== Delta解读函数 =======================
 def delta_interpretation(delta_value, option_type):
     delta_abs = abs(delta_value)
     interpretation = []
@@ -360,7 +341,7 @@ def delta_interpretation(delta_value, option_type):
         interpretation.append("   - 员工收益与股价绑定弱，激励效果差，需降低行权价或延长锁定期")
     return "\n".join(interpretation)
 
-# 估值模型函数（融入股息率，原有）
+# ====================== 估值模型函数（含股息率） =======================
 def calculate_bs(S, K, T, r, sigma, q, option_type="call"):
     try:
         r_q = r - q
@@ -442,7 +423,7 @@ def calculate_binomial(S, K, T, r, sigma, q, option_type="call"):
     except Exception as e:
         return {"price": 0.0, "delta": 0.0, "desc": f"计算失败：{str(e)[:30]}", "delta_interpret": "计算失败"}
 
-# 导出报告函数（优化：新增期限匹配信息）
+# ====================== 导出报告函数 =======================
 def export_report(params, vol, model_results, matched_tenor):
     data = [
         ["估值日期", datetime.now().strftime("%Y-%m-%d")],
@@ -472,10 +453,10 @@ def export_report(params, vol, model_results, matched_tenor):
     output.seek(0)
     return output, f"股权激励估值报告_{datetime.now().strftime('%Y%m%d')}.xlsx"
 
-# ====================== UI布局（核心优化：期限匹配的无风险利率交互） =======================
+# ====================== UI布局 =======================
 # 头部标题
 st.markdown('<h1 class="title-main">📊 港美A股股权激励估值工具</h1>', unsafe_allow_html=True)
-st.markdown('<h3 class="title-sub">专业估值模型 · 期限匹配无风险利率 · 黑色科技版</h3>', unsafe_allow_html=True)
+st.markdown('<h3 class="title-sub">期限匹配无风险利率 · 股息率自动计算 · 低饱和深色版</h3>', unsafe_allow_html=True)
 
 # 侧边栏
 with st.sidebar:
@@ -502,7 +483,7 @@ with st.sidebar:
         disabled=(market_type == "港股")
     )
     
-    # 抓取按钮组：价格/波动率/无风险利率（期限匹配）/股息率
+    # 抓取按钮组
     col1, col2 = st.columns(2)
     with col1:
         fetch_btn = st.button(
@@ -531,7 +512,7 @@ with st.sidebar:
                 st.markdown('<p class="note-text">📝 计算基数：252个交易日</p>', unsafe_allow_html=True)
                 st.rerun()
     
-    # 新增：期限匹配的无风险利率/股息率抓取按钮
+    # 期限匹配利率+股息率按钮
     col3, col4 = st.columns(2)
     with col3:
         r_btn = st.button(
@@ -540,8 +521,7 @@ with st.sidebar:
             disabled=False
         )
         if r_btn:
-            # 获取用户输入的期权期限
-            T = st.session_state.get("T_input", 4.0)  # 默认4年
+            T = st.session_state.get("T_input", 4.0)
             r_auto, r_msg, matched_tenor = get_risk_free_rate_by_tenor(market_type, T)
             st.markdown(r_msg, unsafe_allow_html=True)
             st.session_state["r_auto"] = r_auto
@@ -561,10 +541,10 @@ with st.sidebar:
     
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     
-    # 估值参数：新增期权期限输入
+    # 估值参数
     st.markdown('<h4 style="color:#00ffff; font-weight:600;">📋 估值参数</h4>', unsafe_allow_html=True)
     
-    # 标的价格（原有）
+    # 标的价格
     S = st.number_input(
         "标的价格",
         min_value=0.01,
@@ -576,7 +556,7 @@ with st.sidebar:
     unit_hint = {"港股":"港币", "美股":"美元", "A股":"人民币"}[market_type]
     st.markdown(f'<p class="hint-text">计价单位：{unit_hint}</p>', unsafe_allow_html=True)
     
-    # 行权价（原有）
+    # 行权价
     K = st.number_input(
         "行权价",
         min_value=0.01,
@@ -586,21 +566,21 @@ with st.sidebar:
         format="%.2f"
     )
     
-    # 到期时间（优化：新增T_input存储，用于期限匹配）
+    # 到期时间
     T = st.number_input(
         "到期时间（年）",
         min_value=0.01,
-        value=4.0,
+        value=st.session_state["T_input"],
         step=0.1,
         label_visibility="collapsed",
         format="%.1f"
     )
-    st.session_state["T_input"] = T  # 存储期限值，用于无风险利率计算
+    st.session_state["T_input"] = T
     st.markdown(f'<p class="hint-text">股权激励常用期限：4年</p>', unsafe_allow_html=True)
     
     st.markdown('<div class="param-divider"></div>', unsafe_allow_html=True)
     
-    # 无风险利率（优化：期限匹配+手动输入）
+    # 无风险利率（期限匹配）
     st.markdown('<h5 style="color:#80ffff; margin:0 0 0.5rem 0;">📊 无风险利率设置（期限匹配）</h5>', unsafe_allow_html=True)
     r_option = st.radio(
         "无风险利率来源",
@@ -634,7 +614,7 @@ with st.sidebar:
     
     st.markdown('<div class="param-divider"></div>', unsafe_allow_html=True)
     
-    # 股息率（红利，原有）
+    # 股息率
     st.markdown('<h5 style="color:#80ffff; margin:0 0 0.5rem 0;">💵 股息率（红利）设置</h5>', unsafe_allow_html=True)
     q_option = st.radio(
         "股息率来源",
@@ -673,7 +653,7 @@ with st.sidebar:
     
     st.markdown('<div class="param-divider"></div>', unsafe_allow_html=True)
     
-    # 波动率设置（原有）
+    # 波动率设置
     st.markdown('<h5 style="color:#80ffff; margin:0 0 0.5rem 0;">📈 波动率设置</h5>', unsafe_allow_html=True)
     vol_option = st.radio(
         "波动率来源",
@@ -701,7 +681,7 @@ with st.sidebar:
             format="%.3f"
         )
     
-    # 期权类型（原有）
+    # 期权类型
     option_type = st.selectbox(
         "期权类型",
         ["call（认购）", "put（认沽）"],
@@ -709,7 +689,7 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
-    # 估值按钮（原有）
+    # 估值按钮
     st.markdown('<div style="margin-top:1.5rem;"></div>', unsafe_allow_html=True)
     calculate_btn = st.button(
         "🚀 开始估值",
@@ -737,32 +717,33 @@ if calculate_btn:
     if st.session_state["hist_data"] is not None:
         vol, _ = calculate_hist_vol(st.session_state["hist_data"])
     
-    # 进度条（原有）
+    # 进度条
     st.markdown('<p class="progress-text">🚀 估值模型计算中...（含期限匹配无风险利率+股息率）</p>', unsafe_allow_html=True)
     progress_bar = st.progress(0)
     status_text = st.empty()
     model_results = {}
     
     try:
-        # 1. Black-Scholes模型（33%）
+        # 1. Black-Scholes模型
         status_text.markdown('<p class="progress-text">正在计算 Black-Scholes 模型（含股息率）...</p>', unsafe_allow_html=True)
         model_results["Black-Scholes"] = calculate_bs(S, K, T, r, sigma, q, params["option_type"])
         progress_bar.progress(33)
         time.sleep(0.2)
         
-        # 2. 蒙特卡洛模拟（66%）
+        # 2. 蒙特卡洛模拟
         status_text.markdown('<p class="progress-text">正在计算 蒙特卡洛模拟 模型（含股息率）...</p>', unsafe_allow_html=True)
         model_results["蒙特卡洛模拟"] = calculate_monte_carlo(S, K, T, r, sigma, q, params["option_type"])
         progress_bar.progress(66)
         time.sleep(0.2)
         
-        # 3. 二叉树模型（100%）
+        # 3. 二叉树模型
         status_text.markdown('<p class="progress-text">正在计算 二叉树 模型（500步+含股息率）...</p>', unsafe_allow_html=True)
         model_results["二叉树模型"] = calculate_binomial(S, K, T, r, sigma, q, params["option_type"])
         progress_bar.progress(100)
         time.sleep(0.2)
         
-        status_text.markdown('<p class="progress-text">✅ 所有模型计算完成！（已融入期限匹配无风险利率+股息率）</p>', unsafe_allow_html=True)
+        # 计算完成
+        status_text.markdown('<p class="progress-text">✅ 所有模型计算完成！</p>', unsafe_allow_html=True)
         time.sleep(0.5)
         progress_bar.empty()
         status_text.empty()
@@ -771,7 +752,7 @@ if calculate_btn:
         status_text.markdown(f'<p class="progress-text">❌ 计算出错：{str(e)[:50]}</p>', unsafe_allow_html=True)
         st.error(f"计算过程中出现错误：{str(e)}")
     
-    # 基础参数卡片（优化：新增期限匹配信息）
+    # 基础参数卡片
     st.markdown('<div class="card"><h4 style="color:#00ffff; margin:0 0 1rem 0;">📋 基础参数（含红利/期限匹配无风险利率）</h4>', unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -793,9 +774,9 @@ if calculate_btn:
         st.markdown(f'<div class="metric-card"><h5 style="margin:0; color:#00ffff;">股息率（红利）</h5><p style="font-size:1.25rem; margin:0.5rem 0 0 0;">{q*100:.2f}%</p></div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # 估值结果卡片（原有）
+    # 估值结果卡片
     st.markdown('<div class="result-card">', unsafe_allow_html=True)
-    st.markdown('<h4 style="color:#00ffff; margin:0 0 1.5rem 0;">🎯 估值模型结果（含期限匹配修正）</h4>', unsafe_allow_html=True)
+    st.markdown('<h4 style="color:#00ffff; margin:0 0 1.5rem 0;">🎯 估值模型结果</h4>', unsafe_allow_html=True)
     model_cols = st.columns(3)
     for idx, (model_name, res) in enumerate(model_results.items()):
         with model_cols[idx]:
@@ -807,10 +788,10 @@ if calculate_btn:
                 st.markdown(f'<div style="color:#e0e0e0; line-height:1.6;">{res["delta_interpret"]}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # 导出按钮（优化：新增期限匹配信息）
+    # 导出按钮
     excel_data, filename = export_report(params, vol, model_results, matched_tenor)
     st.download_button(
-        label="📥 导出估值报告（Excel，含期限匹配+红利）",
+        label="📥 导出估值报告（Excel）",
         data=excel_data,
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -819,4 +800,4 @@ if calculate_btn:
 
 # 底部信息
 st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-st.markdown('<p style="text-align:center; color:#e0e0e0; font-size:0.875rem;">© 2026 股权激励估值工具 | 期限匹配无风险利率版 | 数据仅供参考</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align:center; color:#e0e0e0; font-size:0.875rem;">© 2026 股权激励估值工具 | 低饱和深色版 | 数据仅供参考</p>', unsafe_allow_html=True)
